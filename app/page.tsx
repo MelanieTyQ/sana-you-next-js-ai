@@ -555,7 +555,7 @@ export default function LifefortPage() {
             <div key={p.id} className="product-card fade-up" style={{animationDelay:`${i*.05}s`}}>
               <div className="product-thumb" style={{background:`linear-gradient(145deg,${p.color} 0%,${p.color} 55%,${p.accent}25 100%)`}}
                 dangerouslySetInnerHTML={{__html:productShapeIcons[p.category]}}/>
-              {p.badge&&<span className={`product-badge badge-${p.badge}`}>{{award:"Award Winner",best:"Best Seller",new:"New"}[p.badge]??p.badge}</span>}
+              {p.badge&&<span className={`product-badge badge-${p.badge}`}>{{award:"Award Winner",best:"Best Seller",new:"On Sale"}[p.badge]??p.badge}</span>}
               <button className="wishlist-btn" onClick={e=>{e.stopPropagation();showToast("Saved to your wishlist");}}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--royal)" strokeWidth="1.6"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
               </button>
