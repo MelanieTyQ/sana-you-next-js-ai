@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { trackers, getTier, type TierKey } from "@/lib/trackers";
+
 import {
   products,
   categoryLabels,
@@ -90,6 +90,10 @@ export default function LifefortPage() {
   const [aiA, setAiA] = useState("");
   const [askLoading, setAskLoading] = useState(false);
   const [askError, setAskError] = useState("");
+  // Server-side tracker states
+const [trackerList, setTrackerList] = useState<any[]>([]);
+const [currentQuestion, setCurrentQuestion] = useState<any>(null);
+const [serverResult, setServerResult] = useState<any>(null);
 
   // Contact
   const [cF,setCF]=useState(""); const [cL,setCL]=useState(""); const [cE,setCE]=useState("");
@@ -98,10 +102,16 @@ export default function LifefortPage() {
   const trackersRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
+    // Load tracker list from server
+    fetch('/api/get-trackers')
+      .then(r => r.json())
+      .then(setTrackerList);
+    
     try { const s=sessionStorage.getItem("lf_c"); if(s) setCompleted(JSON.parse(s)); } catch {}
     const t = setTimeout(() => setPopupOpen(true), 8000);
     return () => clearTimeout(t);
   }, []);
+
 
   const showToast = useCallback((msg: string) => {
     setToast(msg); setTimeout(() => setToast(""), 3200);
@@ -127,19 +137,46 @@ export default function LifefortPage() {
 
   const scrollToTrackers = () => trackersRef.current?.scrollIntoView({ behavior:"smooth", block:"start" });
 
-  const startTracker = (id: string) => {
-    setTrackerId(id); setCurrentQ(0); setAnswers([]); setFirstName(""); setEmail("");
-    setAiSummary(""); setAiError(""); setAiQ(""); setAiA(""); setScorePct(0);
-    setQuizPage("quiz"); scrollToTrackers();
+const startTracker = async (id: string) => {
+    setTrackerId(id); setCurrentQ(0); setAnswers([]);
+    setFirstName(""); setEmail("");
+    setAiSummary(""); setAiError(""); setAiQ(""); setAiA("");
+    setServerResult(null);
+    
+    const res = await fetch('/api/get-question', {
+      method: 'POST',
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ trackerId: id, questionIndex: 0 })
+    });
+    const q = await res.json();
+    setCurrentQuestion(q);
+    setQuizPage("quiz");
+    scrollToTrackers();
   };
 
-  const nextQ = () => {
-    if (!tracker || answers[currentQ] === undefined) return;
-    if (currentQ < tracker.questions.length - 1) { setCurrentQ(p => p + 1); }
-    else {
-      const s = answers.reduce((acc, a, qi) => acc + (tracker.questions[qi].options[a]?.score ?? 0), 0);
+
+ const nextQ = async () => {
+    if (answers[currentQ] === undefined) return;
+    
+    if (!currentQuestion?.isLast) {
+      const res = await fetch('/api/get-question', {
+        method: 'POST',
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ trackerId, questionIndex: currentQ + 1 })
+      });
+      const q = await res.json();
+      setCurrentQuestion(q);
+      setCurrentQ(p => p + 1);
+    } else {
+      const res = await fetch('/api/submit-tracker', {
+        method: 'POST',
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ trackerId, answers })
+      });
+      const result = await res.json();
+      setServerResult(result);
+      setScorePct(result.scorePct);
       setQuizPage("tease");
-      setTimeout(() => setScorePct(Math.round((s / (tracker.questions.length * 3)) * 100)), 200);
     }
     scrollToTrackers();
   };
@@ -343,12 +380,12 @@ export default function LifefortPage() {
         )}
 
         {/* QUIZ */}
-        {quizPage==="quiz"&&tracker&&(
+        {quizPage==="quiz"&&currentQuestion&&(
           <div style={{maxWidth:720,margin:"0 auto",paddingBottom:40}} className="fade-up">
             <div style={{marginBottom:32}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
                 <span style={{fontSize:".72rem",fontWeight:700,letterSpacing:".12em",textTransform:"uppercase",color:"var(--muted)"}}>{tracker.name}</span>
-                <span style={{fontSize:".72rem",fontWeight:700,color:"var(--royal)"}}>Question {currentQ+1} of {tracker.questions.length}</span>
+                <span style={{fontSize:".72rem",fontWeight:700,color:"var(--royal)"}}>Question {currentQ+1} of {trackerList.find(t=>t.id===trackerId)?.totalQuestions}</span>
               </div>
               <div style={{height:6,background:"var(--surface-2)",borderRadius:3,overflow:"hidden"}}>
                 <div className="prog-fill" style={{width:`${prog}%`,height:"100%",borderRadius:3,background:"linear-gradient(90deg,var(--navy),var(--sky))"}}/>
@@ -358,11 +395,11 @@ export default function LifefortPage() {
               <div style={{display:"inline-flex",alignItems:"center",gap:8,fontSize:".68rem",fontWeight:700,letterSpacing:".14em",textTransform:"uppercase",color:"var(--sky)",background:"rgba(0,125,195,.08)",padding:"5px 12px",borderRadius:20,marginBottom:12}}>
                 {tracker.icon} {tracker.name}
               </div>
-              <h3 style={{fontFamily:"var(--font-lora,serif)",fontSize:"1.35rem",fontWeight:500,color:"var(--navy)",lineHeight:1.4}}>{tracker.questions[currentQ].q}</h3>
-              {tracker.questions[currentQ].sub&&<p style={{fontSize:".82rem",color:"var(--muted)",marginTop:6,lineHeight:1.6}}>{tracker.questions[currentQ].sub}</p>}
+              <h3 style={{fontFamily:"var(--font-lora,serif)",fontSize:"1.35rem",fontWeight:500,color:"var(--navy)",lineHeight:1.4}}>{currentQuestion.q}</h3>
+              {tracker.questions[currentQ].sub&&<p style={{fontSize:".82rem",color:"var(--muted)",marginTop:6,lineHeight:1.6}}>{currentQuestion.sub&&}</p>}
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:28}}>
-              {tracker.questions[currentQ].options.map((opt,i)=>{
+              {currentQuestion.options.map((opt,i)=>{
                 const sel=answers[currentQ]===i;
                 return(
                   <button key={opt.text} type="button" onClick={()=>{const n=[...answers];n[currentQ]=i;setAnswers(n);}}
@@ -380,26 +417,26 @@ export default function LifefortPage() {
               <button type="button" onClick={prevQ} style={{fontSize:".76rem",fontWeight:700,letterSpacing:".08em",textTransform:"uppercase",color:"var(--muted)",background:"none",border:"1.5px solid var(--border)",padding:"10px 20px",borderRadius:2,cursor:"pointer"}}>← Back</button>
               <button type="button" onClick={nextQ} disabled={answers[currentQ]===undefined}
                 style={{fontSize:".78rem",fontWeight:700,letterSpacing:".1em",textTransform:"uppercase",color:"#fff",background:answers[currentQ]===undefined?"var(--silver)":"var(--royal)",border:"none",padding:"11px 28px",borderRadius:2,cursor:answers[currentQ]===undefined?"not-allowed":"pointer"}}>
-                {currentQ===tracker.questions.length-1?"See My Results →":"Next →"}
+              {currentQuestion.isLast?"See My Results →":"Next →"}
               </button>
             </div>
           </div>
         )}
 
         {/* TEASE */}
-        {quizPage==="tease"&&tracker&&td&&(
+       {quizPage==="tease"&&serverResult&&(
           <div style={{maxWidth:640,margin:"0 auto",paddingBottom:40}} className="fade-up">
             <div style={{background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:4,overflow:"hidden",boxShadow:"0 8px 32px rgba(0,82,155,.1)"}}>
               <div style={{background:"linear-gradient(135deg,var(--navy) 0%,var(--royal) 100%)",padding:"28px 28px 24px"}}>
                 <div style={{fontSize:".7rem",fontWeight:700,letterSpacing:".18em",textTransform:"uppercase",color:"var(--light-blue)",marginBottom:8}}>{tracker.icon} {tracker.name} — Results</div>
-                <div style={{fontFamily:"var(--font-lora,serif)",fontSize:"1.4rem",fontWeight:600,color:"#fff",marginBottom:16}}>{td.label}</div>
+                <div style={{fontFamily:"var(--font-lora,serif)",fontSize:"1.4rem",fontWeight:600,color:"#fff",marginBottom:16}}>{serverResult.tierLabel}</div>
                 <div style={{height:10,background:"rgba(255,255,255,.15)",borderRadius:5,overflow:"hidden"}}>
                   <div className="score-bar-fill" style={{width:`${scorePct}%`,height:"100%",borderRadius:5,background:"linear-gradient(90deg,var(--light-blue),#fff)"}}/>
                 </div>
                 <div style={{fontSize:".72rem",fontWeight:700,color:"rgba(255,255,255,.65)",marginTop:6,textAlign:"right"}}>Concern Score: {score} / {maxS}</div>
               </div>
               <div style={{padding:"24px 28px"}}>
-                <div style={{fontFamily:"var(--font-lora,serif)",fontSize:"1rem",fontWeight:500,color:"var(--navy)",lineHeight:1.6,marginBottom:6}}>{td.summary}</div>
+                <div style={{fontFamily:"var(--font-lora,serif)",fontSize:"1rem",fontWeight:500,color:"var(--navy)",lineHeight:1.6,marginBottom:6}}>{serverResult.summary}</div>
                 <div style={{background:"var(--surface-2)",border:"1px solid var(--border)",borderRadius:3,padding:"14px 16px",margin:"16px 0",filter:"blur(3.5px)",userSelect:"none",pointerEvents:"none"}} aria-hidden="true">
                   <p style={{fontSize:".82rem",color:"var(--text-mid)",lineHeight:1.6}}>Based on your answers, your personalized USANA supplement recommendations include key products that directly address the patterns detected. Your full wellness insights and action plan are ready below.</p>
                 </div>
@@ -425,14 +462,14 @@ export default function LifefortPage() {
         )}
 
         {/* FULL RESULT */}
-        {quizPage==="full"&&tracker&&td&&(
+        {quizPage==="full"&&serverResult&&(
           <div style={{maxWidth:720,margin:"0 auto",paddingBottom:40}} className="fade-up">
             {/* Tier badge */}
             <div className={`level-${tier}`} style={{display:"flex",alignItems:"center",gap:14,padding:"16px 20px",borderRadius:3,marginBottom:24,border:"1.5px solid"}}>
               <span style={{fontSize:"1.8rem"}}>{tier==="good"?"✅":tier==="mid"?"⚠️":"🔴"}</span>
               <div>
-                <div style={{fontSize:".72rem",fontWeight:700,letterSpacing:".14em",textTransform:"uppercase",color:TC[tier].lbl,marginBottom:2}}>{td.label}</div>
-                <div style={{fontFamily:"var(--font-lora,serif)",fontSize:"1rem",fontWeight:500,color:"var(--navy)",lineHeight:1.4}}>{td.summary}</div>
+                <div style={{fontSize:".72rem",fontWeight:700,letterSpacing:".14em",textTransform:"uppercase",color:TC[tier].lbl,marginBottom:2}}>{serverResult.tierLabel}</div>
+                <div style={{fontFamily:"var(--font-lora,serif)",fontSize:"1rem",fontWeight:500,color:"var(--navy)",lineHeight:1.4}}>{serverResult.summary}</div>
               </div>
             </div>
 
@@ -445,7 +482,7 @@ export default function LifefortPage() {
             {/* Insights */}
             <SecTitle>What Your Responses Suggest</SecTitle>
             <div style={{marginBottom:28}}>
-              {td.insights.map((ins,i)=>(
+              {serverResult.insights.map((ins,i)=>(
                 <div key={i} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"12px 0",borderBottom:"1px solid var(--border)"}}>
                   <div style={{width:8,height:8,borderRadius:"50%",background:"var(--sky)",flexShrink:0,marginTop:8}}/>
                   <div style={{fontSize:".88rem",color:"var(--text-mid)",lineHeight:1.6}} dangerouslySetInnerHTML={{__html:ins.text}}/>
@@ -457,7 +494,7 @@ export default function LifefortPage() {
             <SecTitle>Suggested USANA Support Products</SecTitle>
             <p style={{fontSize:".78rem",color:"var(--muted)",marginBottom:16,lineHeight:1.6}}>Based on your responses, these USANA products may help support the wellness areas highlighted above.*</p>
             <div style={{marginBottom:28}}>
-              {td.products.map(p=>(
+              {serverResult.products.map(p=>(
                 <div key={p.name} style={{background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:3,padding:"16px 18px",marginBottom:10,display:"flex",alignItems:"flex-start",gap:16}}>
                   <div style={{width:44,height:44,borderRadius:3,flexShrink:0,background:"linear-gradient(135deg,var(--navy),var(--sky))",display:"flex",alignItems:"center",justifyContent:"center"}}
                     dangerouslySetInnerHTML={{__html:resultIcons[p.icon]??resultIcons.cell}}/>
@@ -478,7 +515,7 @@ export default function LifefortPage() {
             {/* Tips */}
             <SecTitle>Lifestyle Recommendations</SecTitle>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:28}}>
-              {td.tips.map((tip,i)=>(
+              {serverResult.tips.map((tip,i)=>(
                 <div key={i} style={{background:"var(--surface-2)",border:"1px solid var(--border)",borderRadius:3,padding:"14px 16px"}}>
                   <div style={{fontSize:"1.2rem",marginBottom:6}}>{tip.icon}</div>
                   <div style={{fontSize:".8rem",color:"var(--text-mid)",lineHeight:1.6}}>{tip.text}</div>
